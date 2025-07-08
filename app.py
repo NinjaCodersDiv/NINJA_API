@@ -50,7 +50,7 @@ class Article(ArticleBase):
         orm_mode = True
 
 # اتصال به پایگاه داده PostgreSQL
-SQLALCHEMY_DATABASE_URL = "postgresql://[USERNAME]:[PASSWORD]@[HOST]/[DATABASE]"
+SQLALCHEMY_DATABASE_URL = "postgresql://data_ovro_user:HwvRmCN0ZvW38pz9xs9FtzUjROp7nXOY@dpg-d1madhadbo4c73f2vfdg-a/data_ovro"
 
 # برای Render.com:
 # SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL").replace("postgres://", "postgresql://")
