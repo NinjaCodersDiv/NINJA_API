@@ -1,23 +1,21 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 import os
 from datetime import datetime
 import shutil
 from sqlalchemy import create_engine, Column, Integer, String, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import time
 
 # تنظیمات اولیه
 app = FastAPI(
     title="سیستم مدیریت مقالات",
     description="یک API کامل برای مدیریت مقالات با قابلیت CRUD و اتصال به PostgreSQL",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # تنظیمات CORS
@@ -29,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# مدل داده مقاله
+# مدل داده مقاله با استفاده از Pydantic v2
 class ArticleBase(BaseModel):
     title: str
     category: str
@@ -45,34 +43,31 @@ class ArticleCreate(ArticleBase):
 
 class Article(ArticleBase):
     id: int
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        orm_mode = True
-
-# اتصال به پایگاه داده PostgreSQL
-SQLALCHEMY_DATABASE_URL = "postgresql://data_ovro_user:HwvRmCN0ZvW38pz9xs9FtzUjROp7nXOY@dpg-d1madhadbo4c73f2vfdg-a/data_ovro"
-
-# برای Render.com:
-# SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL").replace("postgres://", "postgresql://")
-
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
+# مدل پایه SQLAlchemy 2.0
+class Base(DeclarativeBase):
+    pass
 
 # مدل دیتابیس
 class DBArticle(Base):
     __tablename__ = "articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, index=True)
-    category = Column(String)
-    excerpt = Column(String)
-    image = Column(String)
-    date = Column(String)
-    author = Column(String)
-    authorImage = Column(String)
+    title = Column(String(200), index=True)
+    category = Column(String(100))
+    excerpt = Column(String(300))
+    image = Column(String(200))
+    date = Column(String(50))
+    author = Column(String(100))
+    authorImage = Column(String(200))
     content = Column(Text)
+
+# اتصال به پایگاه داده PostgreSQL
+SQLALCHEMY_DATABASE_URL = "postgresql://data_ovro_user:HwvRmCN0ZvW38pz9xs9FtzUjROp7nXOY@dpg-d1madhadbo4c73f2vfdg-a/data_ovro"
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # ایجاد جداول (اگر وجود نداشته باشند)
 Base.metadata.create_all(bind=engine)
@@ -129,14 +124,17 @@ async def create_article_endpoint(
 ):
     """ایجاد مقاله جدید"""
     try:
-        # ذخیره تصاویر
-        image_filename = f"{datetime.now().timestamp()}_{image.filename}"
-        image_path = f"{ARTICLE_IMAGES_DIR}/{image_filename}"
+        # ذخیره تصاویر با نام‌های منحصر به فرد
+        timestamp = int(datetime.now().timestamp())
+        image_filename = f"{timestamp}_{image.filename}"
+        image_path = os.path.join(ARTICLE_IMAGES_DIR, image_filename)
+        
         with open(image_path, "wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
         
-        author_image_filename = f"{datetime.now().timestamp()}_{authorImage.filename}"
-        author_image_path = f"{AUTHOR_IMAGES_DIR}/{author_image_filename}"
+        author_image_filename = f"{timestamp}_{authorImage.filename}"
+        author_image_path = os.path.join(AUTHOR_IMAGES_DIR, author_image_filename)
+        
         with open(author_image_path, "wb") as buffer:
             shutil.copyfileobj(authorImage.file, buffer)
         
@@ -159,7 +157,10 @@ async def create_article_endpoint(
         return db_article
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"خطا در ایجاد مقاله: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"خطا در ایجاد مقاله: {str(e)}"
+        )
 
 @app.put("/articles/{article_id}", response_model=Article, tags=["مقالات"])
 async def update_article_endpoint(
@@ -181,17 +182,33 @@ async def update_article_endpoint(
     try:
         # مدیریت تصاویر
         if image:
-            image_filename = f"{datetime.now().timestamp()}_{image.filename}"
-            new_image_path = f"{ARTICLE_IMAGES_DIR}/{image_filename}"
+            timestamp = int(datetime.now().timestamp())
+            image_filename = f"{timestamp}_{image.filename}"
+            new_image_path = os.path.join(ARTICLE_IMAGES_DIR, image_filename)
+            
             with open(new_image_path, "wb") as buffer:
                 shutil.copyfileobj(image.file, buffer)
+            
+            # حذف تصویر قدیمی اگر وجود داشته باشد
+            old_image_path = os.path.join(ARTICLE_IMAGES_DIR, os.path.basename(db_article.image))
+            if os.path.exists(old_image_path):
+                os.remove(old_image_path)
+            
             db_article.image = f"images/{image_filename}"
         
         if authorImage:
-            author_image_filename = f"{datetime.now().timestamp()}_{authorImage.filename}"
-            new_author_image_path = f"{AUTHOR_IMAGES_DIR}/{author_image_filename}"
+            timestamp = int(datetime.now().timestamp())
+            author_image_filename = f"{timestamp}_{authorImage.filename}"
+            new_author_image_path = os.path.join(AUTHOR_IMAGES_DIR, author_image_filename)
+            
             with open(new_author_image_path, "wb") as buffer:
                 shutil.copyfileobj(authorImage.file, buffer)
+            
+            # حذف تصویر قدیمی نویسنده اگر وجود داشته باشد
+            old_author_image_path = os.path.join(AUTHOR_IMAGES_DIR, os.path.basename(db_article.authorImage))
+            if os.path.exists(old_author_image_path):
+                os.remove(old_author_image_path)
+            
             db_article.authorImage = f"images/{author_image_filename}"
         
         # به‌روزرسانی فیلدها
@@ -207,7 +224,10 @@ async def update_article_endpoint(
         return db_article
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"خطا در به‌روزرسانی مقاله: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"خطا در به‌روزرسانی مقاله: {str(e)}"
+        )
 
 @app.delete("/articles/{article_id}", tags=["مقالات"])
 async def delete_article_endpoint(article_id: int, db: Session = Depends(get_db)):
@@ -217,12 +237,24 @@ async def delete_article_endpoint(article_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="مقاله یافت نشد")
     
     try:
+        # حذف فایل‌های تصویر مرتبط
+        image_path = os.path.join(ARTICLE_IMAGES_DIR, os.path.basename(db_article.image))
+        author_image_path = os.path.join(AUTHOR_IMAGES_DIR, os.path.basename(db_article.authorImage))
+        
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        if os.path.exists(author_image_path):
+            os.remove(author_image_path)
+        
         db.delete(db_article)
         db.commit()
         return {"message": "مقاله با موفقیت حذف شد"}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"خطا در حذف مقاله: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"خطا در حذف مقاله: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn
