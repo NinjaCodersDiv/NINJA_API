@@ -60,7 +60,7 @@ class DBArticle(Base):
     content = Column(Text)
 
 # اتصال به پایگاه داده PostgreSQL
-SQLALCHEMY_DATABASE_URL = "postgresql://data_ovro_user:HwvRmCN0ZvW38pz9xs9FtzUjROp7nXOY@dpg-d1madhadbo4c73f2vfdg-a/data_ovro"
+SQLALCHEMY_DATABASE_URL = "postgresql://data_twye_user:pZXCwvUsjJOWXbTH0umFtNAPzN1kyg3k@dpg-d1mc0ip5pdvs73cpuofg-a/data_twye"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
