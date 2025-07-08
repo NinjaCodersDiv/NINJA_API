@@ -1,15 +1,11 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, Form, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
-import os
 from datetime import datetime
-import shutil
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
 # تنظیمات اولیه
 app = FastAPI(
@@ -32,10 +28,10 @@ class ArticleBase(BaseModel):
     title: str
     category: str
     excerpt: str
-    image: str
+    image_url: str  # تغییر از image به image_url
     date: str
     author: str
-    authorImage: str
+    author_image_url: str  # تغییر از authorImage به author_image_url
     content: str
 
 class ArticleCreate(ArticleBase):
@@ -57,10 +53,10 @@ class DBArticle(Base):
     title = Column(String(200), index=True)
     category = Column(String(100))
     excerpt = Column(String(300))
-    image = Column(String(200))
+    image_url = Column(String(500))  # تغییر از image به image_url
     date = Column(String(50))
     author = Column(String(100))
-    authorImage = Column(String(200))
+    author_image_url = Column(String(500))  # تغییر از authorImage به author_image_url
     content = Column(Text)
 
 # اتصال به پایگاه داده PostgreSQL
@@ -79,14 +75,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-# مسیرهای ذخیره‌سازی تصاویر
-ARTICLE_IMAGES_DIR = "articles/images"
-AUTHOR_IMAGES_DIR = "articles/author_images"
-
-# ایجاد پوشه‌ها اگر وجود نداشته باشند
-os.makedirs(ARTICLE_IMAGES_DIR, exist_ok=True)
-os.makedirs(AUTHOR_IMAGES_DIR, exist_ok=True)
 
 # تابع کمکی برای تاریخ
 def get_persian_date():
@@ -116,37 +104,23 @@ async def create_article_endpoint(
     title: str = Form(...),
     category: str = Form(...),
     excerpt: str = Form(...),
-    image: UploadFile = File(...),
+    image_url: str = Form(...),  # تغییر از UploadFile به str
     author: str = Form(...),
-    authorImage: UploadFile = File(...),
+    author_image_url: str = Form(...),  # تغییر از UploadFile به str
     content: str = Form(...),
     db: Session = Depends(get_db)
 ):
     """ایجاد مقاله جدید"""
     try:
-        # ذخیره تصاویر با نام‌های منحصر به فرد
-        timestamp = int(datetime.now().timestamp())
-        image_filename = f"{timestamp}_{image.filename}"
-        image_path = os.path.join(ARTICLE_IMAGES_DIR, image_filename)
-        
-        with open(image_path, "wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
-        
-        author_image_filename = f"{timestamp}_{authorImage.filename}"
-        author_image_path = os.path.join(AUTHOR_IMAGES_DIR, author_image_filename)
-        
-        with open(author_image_path, "wb") as buffer:
-            shutil.copyfileobj(authorImage.file, buffer)
-        
         # ایجاد مقاله در دیتابیس
         db_article = DBArticle(
             title=title,
             category=category,
             excerpt=excerpt,
-            image=f"images/{image_filename}",
+            image_url=image_url,  # ذخیره لینک مستقیم
             date=get_persian_date(),
             author=author,
-            authorImage=f"images/{author_image_filename}",
+            author_image_url=author_image_url,  # ذخیره لینک مستقیم
             content=content
         )
         
@@ -168,9 +142,9 @@ async def update_article_endpoint(
     title: str = Form(...),
     category: str = Form(...),
     excerpt: str = Form(...),
-    image: Optional[UploadFile] = File(None),
+    image_url: str = Form(...),  # تغییر از Optional[UploadFile] به str
     author: str = Form(...),
-    authorImage: Optional[UploadFile] = File(None),
+    author_image_url: str = Form(...),  # تغییر از Optional[UploadFile] به str
     content: str = Form(...),
     db: Session = Depends(get_db)
 ):
@@ -180,42 +154,13 @@ async def update_article_endpoint(
         raise HTTPException(status_code=404, detail="مقاله یافت نشد")
     
     try:
-        # مدیریت تصاویر
-        if image:
-            timestamp = int(datetime.now().timestamp())
-            image_filename = f"{timestamp}_{image.filename}"
-            new_image_path = os.path.join(ARTICLE_IMAGES_DIR, image_filename)
-            
-            with open(new_image_path, "wb") as buffer:
-                shutil.copyfileobj(image.file, buffer)
-            
-            # حذف تصویر قدیمی اگر وجود داشته باشد
-            old_image_path = os.path.join(ARTICLE_IMAGES_DIR, os.path.basename(db_article.image))
-            if os.path.exists(old_image_path):
-                os.remove(old_image_path)
-            
-            db_article.image = f"images/{image_filename}"
-        
-        if authorImage:
-            timestamp = int(datetime.now().timestamp())
-            author_image_filename = f"{timestamp}_{authorImage.filename}"
-            new_author_image_path = os.path.join(AUTHOR_IMAGES_DIR, author_image_filename)
-            
-            with open(new_author_image_path, "wb") as buffer:
-                shutil.copyfileobj(authorImage.file, buffer)
-            
-            # حذف تصویر قدیمی نویسنده اگر وجود داشته باشد
-            old_author_image_path = os.path.join(AUTHOR_IMAGES_DIR, os.path.basename(db_article.authorImage))
-            if os.path.exists(old_author_image_path):
-                os.remove(old_author_image_path)
-            
-            db_article.authorImage = f"images/{author_image_filename}"
-        
         # به‌روزرسانی فیلدها
         db_article.title = title
         db_article.category = category
         db_article.excerpt = excerpt
+        db_article.image_url = image_url  # به‌روزرسانی لینک تصویر
         db_article.author = author
+        db_article.author_image_url = author_image_url  # به‌روزرسانی لینک تصویر نویسنده
         db_article.content = content
         
         db.commit()
@@ -237,15 +182,7 @@ async def delete_article_endpoint(article_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="مقاله یافت نشد")
     
     try:
-        # حذف فایل‌های تصویر مرتبط
-        image_path = os.path.join(ARTICLE_IMAGES_DIR, os.path.basename(db_article.image))
-        author_image_path = os.path.join(AUTHOR_IMAGES_DIR, os.path.basename(db_article.authorImage))
-        
-        if os.path.exists(image_path):
-            os.remove(image_path)
-        if os.path.exists(author_image_path):
-            os.remove(author_image_path)
-        
+        # حذف مقاله از دیتابیس (دیگر نیازی به حذف فایل‌های تصویری نیست)
         db.delete(db_article)
         db.commit()
         return {"message": "مقاله با موفقیت حذف شد"}
